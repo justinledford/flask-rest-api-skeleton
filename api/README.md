@@ -29,3 +29,5 @@ export FLASK_APP=app.py
 export FLASK_DEBUG=1
 export PYTHONPATH=.
 ```
+
+![skeleton](https://media.giphy.com/media/l4FGxIoHrtnn4BYvm/giphy.gif)
