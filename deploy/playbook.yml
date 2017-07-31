@@ -1,0 +1,137 @@
+---
+- hosts: all
+  become: yes
+  become_user: root
+  become_method: sudo
+
+  tasks:
+
+  - name: include vars
+    include_vars:
+      file: vars.yml
+
+  - name: system | install packages
+    apt: name={{ item }} update_cache=yes state=latest
+    with_items:
+      - git
+      - nginx
+      - mysql-server
+      - mysql-client
+      - python3-pip
+      - python3-virtualenv
+
+  - name: app | clone app
+    git:
+      repo: '{{ git_repo_url }}'
+      dest: '{{ project_root }}'
+      accept_hostkey: yes
+      version: '{{ git_branch }}'
+      force: yes
+
+  - name: system | chown /var/www to www-data
+    file:
+      path: /var/www
+      owner: www-data
+      group: www-data
+      recurse: yes
+
+  - name: app | install python requirements
+    pip:
+      requirements: '{{ project_root }}/api/requirements.txt'
+      virtualenv: '{{ project_root }}/api/{{ project_name }}-env'
+      virtualenv_python: python3
+      virtualenv_command: python3 /usr/lib/python3/dist-packages/virtualenv.py
+
+  - name: app | deploy env vars file
+    template:
+      src: flask_vars.j2
+      dest: '{{ project_root }}/api/env'
+      owner: www-data
+      group: www-data
+
+  - name: gunicorn | install gunicorn service file
+    template:
+      src: gunicorn.service.j2
+      dest: '/etc/systemd/system/{{ project_name }}-gunicorn.service'
+
+  - name: gunicorn | enable and start gunicorn service
+    systemd:
+      name: '{{ project_name }}-gunicorn'
+      enabled: yes
+      state: restarted
+      daemon_reload: yes
+
+  - name: nginx | copy site conf file
+    template:
+      src: nginx.conf.j2
+      dest: '/etc/nginx/sites-available/{{ project_name }}'
+
+  - name: nginx | enable site conf
+    file:
+      src: '/etc/nginx/sites-available/{{ project_name }}'
+      dest: '/etc/nginx/sites-enabled/{{ project_name }}'
+      state: link
+
+  - name: nginx | disable default site conf
+    file:
+      state: absent
+      path: /etc/nginx/sites-enabled/default
+
+  - name: nginx | restart nginx
+    systemd:
+      name: nginx
+      state: restarted
+
+  - name: mysql | install mysqldb to use mysql modules
+    apt:
+      name: python-mysqldb
+      update_cache: yes
+      state: latest
+
+  - name: mysql | create new user
+    mysql_user:
+      name: "{{ mysql_username }}"
+      password: "{{ mysql_password }}"
+      priv: '*.*:ALL'
+      state: present
+      check_implicit_admin: yes
+
+  - name: mysql | remove anonymous users
+    mysql_user:
+      name: ''
+      host_all: yes
+      state: absent
+      check_implicit_admin: yes
+
+  - name: mysql | remove test db
+    mysql_db:
+      name: test
+      state: absent
+
+  - name: mysql | change root password
+    mysql_user:
+      name: root
+      password: "{{ mysql_root_password }}"
+      state: present
+      check_implicit_admin: yes
+
+  - name: mysql | reload privilege tables
+    command: 'mysql -ne "FLUSH PRIVILEGES"'
+
+  - name: mysql | create db
+    mysql_db:
+      name: '{{ mysql_db_name }}'
+      state: present
+    register: db_created
+
+  - name: mysql | create schema from ORM mapping
+    command: '{{ project_name }}-env/bin/flask initdb'
+    args:
+      chdir: '{{ project_root }}/api'
+    environment:
+      FLASK_APP: app.py
+      PYTHONPATH: .
+      DBHOST: '{{ mysql_host }}'
+      DBUSER: '{{ mysql_username }}'
+      DBPASS: '{{ mysql_password }}'
+      DBNAME: '{{ mysql_db_name }}'

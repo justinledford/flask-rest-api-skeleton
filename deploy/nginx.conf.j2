@@ -1,0 +1,29 @@
+server {
+    listen 80;
+    server_name 0.0.0.0;
+
+    root /var/www/html;
+    index index.html;
+
+    location /api/ {
+        include proxy_params;
+
+        rewrite /api/(.*) /$1 break;
+        proxy_pass http://unix:{{ project_root }}/api/{{ project_name }}-gunicorn.sock;
+    }
+
+    location / {
+        try_files $uri $uri/ @rewrites;
+    }
+
+    location @rewrites {
+        rewrite ^(.+)$ /index.html last;
+    }
+
+    location ~* \.(?:ico|css|js|gif|jpe?g|png)$ {
+    # Some basic cache-control for static files to be sent to the browser
+        expires max;
+        add_header Pragma public;
+        add_header Cache-Control "public, must-revalidate, proxy-revalidate";
+    }
+}

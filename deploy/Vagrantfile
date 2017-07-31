@@ -1,0 +1,39 @@
+$copy_git_key_script = <<SCRIPT
+mkdir -p /root/.ssh
+mv /home/vagrant/.ssh/id_rsa /root/.ssh/id_rsa
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/id_rsa
+SCRIPT
+
+$setup_swap_space = <<SCRIPT
+sudo fallocate -l 1G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+sudo cp /etc/fstab /etc/fstab.bak
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+sudo swapon --show
+free -h
+SCRIPT
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "debian/stretch64"
+
+  # config.vm.network "forwarded_port", guest: 80, host: 8080, host_ip: "0.0.0.0"
+  config.vm.network "private_network", ip: "192.168.33.11"
+
+  # Don't sync this folder
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  # Use default key pair
+  config.ssh.private_key_path = "~/.vagrant.d/insecure_private_key"
+  config.ssh.insert_key = false
+
+  # Set up key to clone from github
+  config.vm.provision "file", source: "~/.ssh/id_rsa", destination: "~/.ssh/id_rsa"
+  config.vm.provision "shell", inline: $copy_git_key_script
+
+  # Set up swap
+  # config.vm.provision "shell", inline: $setup_swap_space
+end
